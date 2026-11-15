@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# 端到端演示：正常 / 错配 / 超限三类样例。
-# 依赖: curl；样例先由 scripts/make_samples.py 生成。
+# 端到端演示：正常 / 错配 / 超限三类接收 + 混样拆样。
+# 依赖: curl、python3；样例先由 scripts/make_samples.py 生成。
 set -euo pipefail
 
 BASE="${BASE_URL:-http://127.0.0.1:8000}"
@@ -46,3 +46,61 @@ echo "下载正常批展开后的 R1（前 2 行）:"
 NORMAL_BID="$(curl -sS "$BASE/batches" | python3 -c \
   'import json,sys; print(next(b["id"] for b in json.load(sys.stdin)["batches"] if b["status"]=="ready"))')"
 curl -sS "$BASE/batches/$NORMAL_BID/files/R1/download" | head -n 2 || true
+
+# --------------------------------------------------------------------------- #
+# 拆样演示
+# --------------------------------------------------------------------------- #
+if [[ -f "$SAMPLES/demux/R1.fastq.gz" ]]; then
+  echo
+  echo "================ demux ================"
+  DEMUX_BID="$(post_batch "demo-demux")"
+  echo "batch: $DEMUX_BID"
+  upload "$DEMUX_BID" R1 "$SAMPLES/demux/R1.fastq.gz"
+  upload "$DEMUX_BID" R2 "$SAMPLES/demux/R2.fastq.gz"
+
+  PAYLOAD="$(python3 -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1]))["request"]))' \
+    "$SAMPLES/demux/expected.json")"
+  echo "demux request: $PAYLOAD"
+  curl -sS -o /tmp/fastq_demux.json -w "  HTTP %{http_code}\n" \
+    -X POST "$BASE/batches/$DEMUX_BID/demux" \
+    -H 'Content-Type: application/json' \
+    --data-binary "$PAYLOAD"
+  python3 - "$SAMPLES/demux/expected.json" <<'PY'
+import json, sys
+got = json.load(open("/tmp/fastq_demux.json"))
+expected = json.load(open(sys.argv[1]))
+print("  status:", got.get("status"), got.get("error") or got.get("detail") or "")
+print("  total/unassigned:", got.get("total_pairs"), got.get("unassigned_pairs"))
+for s in got.get("samples", []):
+    print(f"  sample {s['sample_id']} ({s['barcode']}): {s['assigned_pairs']} pairs")
+print("  expected:", expected["expected_assigned"], "unassigned", expected["expected_unassigned"])
+assert got["status"] == "published", got
+assert got["unassigned_pairs"] == expected["expected_unassigned"], got
+for s in got["samples"]:
+    assert s["assigned_pairs"] == expected["expected_assigned"][s["sample_id"]], (s, expected)
+print("  计数与 expected.json 一致 ✓")
+PY
+
+  echo
+  echo "下载各样本 R1/R2 与未归样 R1/R2:"
+  for SAMPLE in S-DEMUX-A S-DEMUX-B; do
+    for ROLE in R1 R2; do
+      CODE="$(curl -sS -o "/tmp/demux_${SAMPLE}_${ROLE}.fastq" -w '%{http_code}' \
+        "$BASE/batches/$DEMUX_BID/demux/samples/$SAMPLE/files/$ROLE/download")"
+      echo "  $SAMPLE $ROLE -> HTTP $CODE, $(wc -l < "/tmp/demux_${SAMPLE}_${ROLE}.fastq") lines"
+    done
+  done
+  for ROLE in R1 R2; do
+    CODE="$(curl -sS -o "/tmp/demux_unassigned_${ROLE}.fastq" -w '%{http_code}' \
+      "$BASE/batches/$DEMUX_BID/demux/unassigned/files/$ROLE/download")"
+    echo "  unassigned $ROLE -> HTTP $CODE, $(wc -l < "/tmp/demux_unassigned_${ROLE}.fastq") lines"
+  done
+
+  echo
+  echo "重复拆样（应 409）:"
+  curl -sS -o /tmp/fastq_demux_again.json -w "  HTTP %{http_code}\n" \
+    -X POST "$BASE/batches/$DEMUX_BID/demux" \
+    -H 'Content-Type: application/json' \
+    --data-binary "$PAYLOAD"
+  python3 -c 'import json; print("  ->", json.load(open("/tmp/fastq_demux_again.json")).get("detail"))'
+fi

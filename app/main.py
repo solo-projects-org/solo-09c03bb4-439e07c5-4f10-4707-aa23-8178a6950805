@@ -15,6 +15,8 @@ from .schemas import (
     BatchListResponse,
     BatchResponse,
     CancelResponse,
+    DemuxCreateRequest,
+    DemuxResponse,
 )
 from .service import BatchService
 
@@ -86,6 +88,47 @@ async def cancel_batch(batch_id: str):
          summary="下载展开后的 R1 / R2 FASTQ（仅 ready 批次）")
 async def download_file(batch_id: str, role: FileRole):
     path, filename = service.download_path(batch_id, role)
+    return FileResponse(path, media_type="text/plain", filename=filename)
+
+
+@app.post(
+    "/batches/{batch_id}/demux",
+    response_model=DemuxResponse,
+    tags=["demux"],
+    summary="对 ready 批一次性拆样（并发最多成功一次，失败可重试）",
+    responses={
+        409: {"description": "批次非 ready / 已有拆样在跑 / 已发布"},
+        413: {"description": "拆样结果与原档合计超过单批字节上限，本次拆样失败"},
+        422: {"description": "源 FASTQ 异常，本次拆样失败"},
+    },
+)
+async def start_demux(batch_id: str, payload: DemuxCreateRequest):
+    return await service.start_demux(
+        batch_id,
+        payload.sample_id_a,
+        payload.sample_id_b,
+        payload.barcode_a,
+        payload.barcode_b,
+    )
+
+
+@app.get("/batches/{batch_id}/demux", response_model=DemuxResponse, tags=["demux"],
+         summary="查询拆样状态与各样本/未归样读对数")
+async def get_demux(batch_id: str):
+    return await service.get_demux(batch_id)
+
+
+@app.get("/batches/{batch_id}/demux/samples/{sample_id}/files/{role}/download",
+         tags=["demux"], summary="下载已发布样本的拆样 R1 / R2 FASTQ")
+async def download_demux_sample(batch_id: str, sample_id: str, role: FileRole):
+    path, filename = service.demux_sample_download(batch_id, sample_id, role)
+    return FileResponse(path, media_type="text/plain", filename=filename)
+
+
+@app.get("/batches/{batch_id}/demux/unassigned/files/{role}/download",
+         tags=["demux"], summary="下载未归样 R1 / R2 FASTQ")
+async def download_demux_unassigned(batch_id: str, role: FileRole):
+    path, filename = service.demux_unassigned_download(batch_id, role)
     return FileResponse(path, media_type="text/plain", filename=filename)
 
 

@@ -12,3 +12,4 @@ samples/
 .gitignore
 README.md
 tests/
+examples/

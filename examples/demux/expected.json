@@ -1,0 +1,25 @@
+{
+  "request": {
+    "sample_id_a": "S-DEMUX-A",
+    "sample_id_b": "S-DEMUX-B",
+    "barcode_a": "ACGTACGT",
+    "barcode_b": "ACGTACGA"
+  },
+  "barcodes": {
+    "sample_a": "ACGTACGT",
+    "sample_b": "ACGTACGA",
+    "ambiguous": "ACGTACGG",
+    "out_of_range": "TTTTTTTT"
+  },
+  "total_pairs": 91,
+  "expected_assigned": {
+    "S-DEMUX-A": 45,
+    "S-DEMUX-B": 34
+  },
+  "expected_unassigned": 12,
+  "notes": [
+    "条码位于读段名首个空格之后，取最后一个冒号字段。",
+    "两端条码必须完全一致；最小汉明距离最多容忍 1 位。",
+    "等距（ambiguous）与超范围（out_of_range）都计入未归样。"
+  ]
+}

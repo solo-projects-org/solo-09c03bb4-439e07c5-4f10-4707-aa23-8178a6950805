@@ -31,6 +31,31 @@ CREATE TABLE IF NOT EXISTS files (
     uploaded_at TEXT NOT NULL,
     UNIQUE(batch_id, role)
 );
+
+CREATE TABLE IF NOT EXISTS demux_runs (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    batch_id       TEXT NOT NULL REFERENCES batches(id) ON DELETE CASCADE,
+    sample_a       TEXT NOT NULL,
+    sample_b       TEXT NOT NULL,
+    barcode_a      TEXT NOT NULL,
+    barcode_b      TEXT NOT NULL,
+    status         TEXT NOT NULL CHECK (status IN ('running','published','failed')),
+    error          TEXT,
+    total_pairs    INTEGER NOT NULL DEFAULT 0,
+    unassigned     INTEGER NOT NULL DEFAULT 0,
+    started_at     TEXT NOT NULL,
+    published_at   TEXT,
+    UNIQUE(batch_id)
+);
+
+CREATE TABLE IF NOT EXISTS demux_samples (
+    run_id      INTEGER NOT NULL REFERENCES demux_runs(id) ON DELETE CASCADE,
+    sample_id   TEXT NOT NULL,
+    barcode     TEXT NOT NULL,
+    slot        INTEGER NOT NULL,
+    assigned    INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (run_id, sample_id)
+);
 """
 
 _INIT_LOCK = threading.Lock()
